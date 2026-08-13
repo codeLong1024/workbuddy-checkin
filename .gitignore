@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行时产物
+checkin.log
+launchd.*.log
+
+# 本地配置（若存在，勿提交——可能含敏感信息）
+checkin_config.json
+
+# 编辑器
+.vscode/
+.idea/
