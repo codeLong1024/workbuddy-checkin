@@ -6,56 +6,45 @@ agent_created: true
 
 # WorkBuddy 每日签到
 
-直接读取 WorkBuddy 客户端登录态（accessToken），调用腾讯 copilot 签到接口完成每日积分签到。不依赖界面自动化，不存储任何凭证，纯 Python 标准库单文件。
+直接读 WorkBuddy 登录态 accessToken 调 copilot 签到接口。纯标准库单文件，零凭证落盘。
 
 ## 用法
 
 ```bash
-# 执行签到（幂等：今日已签则跳过）
-python <skill_dir>/scripts/checkin.py
-
-# 只查询签到状态（不签到）
-python <skill_dir>/scripts/checkin.py --dry-run
-
-# 强制签到（忽略今日已签，依赖服务端幂等）
-python <skill_dir>/scripts/checkin.py --force
+python <skill_dir>/scripts/checkin.py           # 签到（幂等：今日已签则跳过）
+python <skill_dir>/scripts/checkin.py --dry-run # 只查状态，不签到
+python <skill_dir>/scripts/checkin.py --force   # 强制调签到接口（依赖服务端幂等）
 ```
 
-`<skill_dir>` 指本 skill 所在目录。本机安装位置示例：`C:\Users\<你的用户名>\.workbuddy\skills\workbuddy-checkin\scripts\checkin.py`（克隆仓库到 `~/.workbuddy/skills/workbuddy-checkin/` 后即为此路径）。
+`<skill_dir>` = 本 skill 目录，如 `C:\Users\<你的用户名>\.workbuddy\skills\workbuddy-checkin`。
 
 ## 退出码
 
 | 码 | 含义 | 处理 |
-|----|------|------|
+|---|---|---|
 | 0 | 签到成功 / 今日已签 | 无需处理 |
 | 1 | 业务失败（接口错误、网络重试耗尽） | 查看输出，可重跑 |
-| 2 | 登录态缺失/失效（401） | 需用户重新登录 WorkBuddy 客户端 |
+| 2 | 登录态缺失/失效（401） | 重新登录 WorkBuddy 客户端 |
 
 ## Token 来源
 
-- 主来源：`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` 的 `auth.accessToken`（WorkBuddy 自动续期，无需干预）
-- 回退：`Tencent-Cloud.coding-copilot.info`
-- 脚本不写任何配置文件，不存储凭证
+`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` 的 `auth.accessToken`（WorkBuddy 自动续期）；回退 `Tencent-Cloud.coding-copilot.info`。
 
-## 接口路径（事实校正 v2）
+## 接口
 
-脚本使用以下端点（`/v2` 前缀为客户端 `app.asar` 逆向确认的真实路径，无 `v2` 版本服务端仍兼容但非主路径，切勿依赖）：
+| 用途 | 路径 |
+|---|---|
+| 查活动/签到状态 | `POST /v2/billing/meter/checkin-activity-status` |
+| 执行签到 | `POST /v2/billing/meter/daily-checkin`（已签返回 `code=10001`，预期幂等） |
 
-| 用途 | 路径 | 成功报文 data 字段 |
-|---|---|---|
-| 查活动/签到状态 | `POST /v2/billing/meter/checkin-activity-status` | `streak_days` / `today_credit` / `total_credits` / `checkin_dates` 等 |
-| 执行签到 | `POST /v2/billing/meter/daily-checkin` | `credit`（本次积分）/ `streak_days` / `is_streak_day` |
-
-**关键事实**：`daily-checkin` 成功报文**没有** `today_credit` / `total_credits` 字段——总积分由脚本本地累加（签到前 `total_credits` + 本次 `credit`），连续天数取签到报文 `streak_days`（服务端权威值），省去签到后二次状态查询。签到接口 `code=10001` 表示已签，为预期幂等响应。
-
-注意：`/checkin-status`（无 `-activity-`）是已废弃/语义变更的老接口（仍返回 HTTP 200 但 `active=false`），sun-olympic/workbuddy-checkin 仓库用的是它，已不能正确反映客户端活动状态——切勿使用。
+勿用 `/checkin-status`（无 `-activity-`，已废弃：HTTP 200 但 `active=false`）。报文字段与本地累加逻辑见 README.md。
 
 ## 与自动化集成
 
-创建每日 automation，prompt 模板：
+每日 automation prompt 模板：
 
 ```
-运行签到脚本 <skill_dir>/scripts/checkin.py 完成每日签到（<skill_dir> 替换为各自机器上的实际路径，
+运行签到脚本 <skill_dir>/scripts/checkin.py 完成每日签到（<skill_dir> 替换为各自机器实际路径，
 如 C:\Users\<用户名>\.workbuddy\skills\workbuddy-checkin），
 将输出（活动状态/积分/连续天数）简要汇报给用户。
 若退出码为 2（登录态失效），提示用户重新登录 WorkBuddy 客户端。
@@ -63,10 +52,10 @@ python <skill_dir>/scripts/checkin.py --force
 
 ## 故障排查
 
-- **退出码 2**：WorkBuddy 登录态失效。打开 WorkBuddy 重新登录，Token 会自动续期，次日自动化即可恢复。
-- **"活动: 未激活"**：当前签到活动未上线，属正常状态，脚本仍会尝试签到。
-- **状态接口显示"未签"但签到接口返回已签**：服务端状态缓存延迟，以签到接口（code=10001）为准，属预期行为。
+- **退出码 2**：登录态失效。重登 WorkBuddy，Token 自动续期，次日恢复。
+- **"活动: 未激活"**：当前无签到活动，属正常状态，脚本仍会尝试签到。
+- **状态"未签"但签到返回已签**：服务端缓存延迟，以 `code=10001` 为准，属预期。
 
 ## 免责声明
 
-本 skill 调用的接口位于 `copilot.tencent.com` 域名下，归腾讯公司所有，与本项目无任何隶属或授权关系。本项目仅供个人自动化学习，禁止商业用途，使用者须自行遵守腾讯服务条款、法律法规及所在组织合规要求。接口可能随时变更或下线，作者不保证其持续可用，因使用产生的任何后果由使用者自行承担。完整声明见仓库 README。
+接口归腾讯所有，无隶属/授权关系；仅供个人自动化学习，禁止商业用途，使用者自负风险。完整声明见仓库 README。
