@@ -60,7 +60,7 @@ python <skill_dir>/scripts/checkin.py --force
 
 - **Token 来源**：`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` 的 `auth.accessToken`，WorkBuddy 客户端自动续期，脚本只读不改
 - **查询接口**：`POST /v2/billing/meter/checkin-activity-status`（返回 `streak_days` / `today_credit` / `total_credits`）
-- **签到接口**：`POST /v2/billing/meter/daily-checkin`（幂等，已签返回 `code=10001`；成功报文含 `credit`（本次积分）/ `streak_days`，**不含总积分**，脚本签到后重查状态接口补全）
+- **签到接口**：`POST /v2/billing/meter/daily-checkin`（幂等，已签返回 `code=10001`；成功报文含 `credit`（本次积分）/ `streak_days`，**不含总积分**——脚本本地累加：签到前 `total_credits` + 本次 `credit`，省去二次查询）
 - 请求体为空 `{}`，鉴权仅靠 `Authorization: Bearer <JWT>` + `X-User-Id`
 - `/v2` 前缀为客户端真实路径（逆向 `app.asar` 确认），无 `v2` 版本服务端仍兼容但非主路径，请勿依赖
 

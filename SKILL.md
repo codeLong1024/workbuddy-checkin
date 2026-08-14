@@ -46,7 +46,7 @@ python <skill_dir>/scripts/checkin.py --force
 | 查活动/签到状态 | `POST /v2/billing/meter/checkin-activity-status` | `streak_days` / `today_credit` / `total_credits` / `checkin_dates` 等 |
 | 执行签到 | `POST /v2/billing/meter/daily-checkin` | `credit`（本次积分）/ `streak_days` / `is_streak_day` |
 
-**关键事实**：`daily-checkin` 成功报文**没有** `today_credit` / `total_credits` 字段——总积分需签到后重查状态接口（与客户端 `refreshStatus` 行为一致）。签到接口 `code=10001` 表示已签，为预期幂等响应。
+**关键事实**：`daily-checkin` 成功报文**没有** `today_credit` / `total_credits` 字段——总积分由脚本本地累加（签到前 `total_credits` + 本次 `credit`），连续天数取签到报文 `streak_days`（服务端权威值），省去签到后二次状态查询。签到接口 `code=10001` 表示已签，为预期幂等响应。
 
 注意：`/checkin-status`（无 `-activity-`）是已废弃/语义变更的老接口（仍返回 HTTP 200 但 `active=false`），sun-olympic/workbuddy-checkin 仓库用的是它，已不能正确反映客户端活动状态——切勿使用。
 

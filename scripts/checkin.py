@@ -129,12 +129,6 @@ def call(path, token, uid):
     raise RuntimeError(last or "请求失败")
 
 
-def report(prefix, data):
-    # daily-checkin 成功报文字段：{credit, streak_days, is_streak_day}，无 today_credit/total_credits
-    print("{} 本次 +{} 积分 | 连续 {} 天".format(
-        prefix, data.get("credit", 0), data.get("streak_days", 0)))
-
-
 def main():
     parser = argparse.ArgumentParser(description="WorkBuddy 每日签到")
     parser.add_argument("--dry-run", action="store_true", help="只查询状态")
@@ -182,16 +176,13 @@ def main():
     biz_code = body.get("code")
     msg = body.get("msg") or ""
     if biz_code == 0:
-        report("签到成功", body.get("data") or {})
-        # 签到接口不回总积分，重查状态接口补全（与客户端 refreshStatus 行为一致）
-        try:
-            code2, body2 = call("/checkin-activity-status", token, uid)
-            if code2 == 200 and body2.get("code") == 0:
-                d2 = body2.get("data") or {}
-                print("当前状态: 连续 {} 天 | 总积分 {}".format(
-                    d2.get("streak_days", 0), d2.get("total_credits", 0)))
-        except RuntimeError:
-            pass
+        d = body.get("data") or {}
+        # 本地累加，省去签到后二次状态查询：
+        # 总积分 = 签到前 total_credits + 本次 credit；连续天数取签到报文 streak_days（服务端权威值）。
+        # 注：is_streak_day=true（连续奖励日）时服务端可能另有加成，具体以状态接口为准。
+        total_after = data.get("total_credits", 0) + d.get("credit", 0)
+        print("签到成功 本次 +{} 积分 | 连续 {} 天 | 总积分 {}".format(
+            d.get("credit", 0), d.get("streak_days", 0), total_after))
         return
     if biz_code == 10001 or "已签" in msg:
         print("今日已签到（接口确认），无需重复")
