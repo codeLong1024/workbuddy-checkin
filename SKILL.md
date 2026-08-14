@@ -37,14 +37,16 @@ python <skill_dir>/scripts/checkin.py --force
 - 回退：`Tencent-Cloud.coding-copilot.info`
 - 脚本不写任何配置文件，不存储凭证
 
-## 接口路径（事实校正）
+## 接口路径（事实校正 v2）
 
-脚本使用以下端点（直接取自 WorkBuddy 客户端 `app.asar` 资源，已实际验证）：
+脚本使用以下端点（`/v2` 前缀为客户端 `app.asar` 逆向确认的真实路径，无 `v2` 版本服务端仍兼容但非主路径，切勿依赖）：
 
-| 用途 | 路径 |
-|---|---|
-| 查活动/签到状态 | `POST /billing/meter/checkin-activity-status` |
-| 执行签到 | `POST /billing/meter/daily-checkin` |
+| 用途 | 路径 | 成功报文 data 字段 |
+|---|---|---|
+| 查活动/签到状态 | `POST /v2/billing/meter/checkin-activity-status` | `streak_days` / `today_credit` / `total_credits` / `checkin_dates` 等 |
+| 执行签到 | `POST /v2/billing/meter/daily-checkin` | `credit`（本次积分）/ `streak_days` / `is_streak_day` |
+
+**关键事实**：`daily-checkin` 成功报文**没有** `today_credit` / `total_credits` 字段——总积分需签到后重查状态接口（与客户端 `refreshStatus` 行为一致）。签到接口 `code=10001` 表示已签，为预期幂等响应。
 
 注意：`/checkin-status`（无 `-activity-`）是已废弃/语义变更的老接口（仍返回 HTTP 200 但 `active=false`），sun-olympic/workbuddy-checkin 仓库用的是它，已不能正确反映客户端活动状态——切勿使用。
 

@@ -25,7 +25,8 @@ import time
 import urllib.error
 import urllib.request
 
-API_BASE = "https://copilot.tencent.com/billing/meter"
+# v2 为客户端真实路径（app.asar 逆向确认）；无 v2 版本服务端仍兼容，但非主路径
+API_BASE = "https://copilot.tencent.com/v2/billing/meter"
 AUTH_FILENAMES = ("workbuddy-desktop.info", "Tencent-Cloud.coding-copilot.info")
 RETRIES = 2              # 网络/5xx 最多额外重试次数
 RETRY_DELAYS = (5, 10)   # 重试间隔（秒）
@@ -129,9 +130,9 @@ def call(path, token, uid):
 
 
 def report(prefix, data):
-    print("{} 今日积分 {} | 连续 {} 天 | 总积分 {}".format(
-        prefix, data.get("today_credit", 0), data.get("streak_days", 0),
-        data.get("total_credits", 0)))
+    # daily-checkin 成功报文字段：{credit, streak_days, is_streak_day}，无 today_credit/total_credits
+    print("{} 本次 +{} 积分 | 连续 {} 天".format(
+        prefix, data.get("credit", 0), data.get("streak_days", 0)))
 
 
 def main():
@@ -182,6 +183,15 @@ def main():
     msg = body.get("msg") or ""
     if biz_code == 0:
         report("签到成功", body.get("data") or {})
+        # 签到接口不回总积分，重查状态接口补全（与客户端 refreshStatus 行为一致）
+        try:
+            code2, body2 = call("/checkin-activity-status", token, uid)
+            if code2 == 200 and body2.get("code") == 0:
+                d2 = body2.get("data") or {}
+                print("当前状态: 连续 {} 天 | 总积分 {}".format(
+                    d2.get("streak_days", 0), d2.get("total_credits", 0)))
+        except RuntimeError:
+            pass
         return
     if biz_code == 10001 or "已签" in msg:
         print("今日已签到（接口确认），无需重复")
