@@ -10,6 +10,24 @@ WorkBuddy / 腾讯 copilot 每日积分自动签到 —— 读取 WorkBuddy 客�
 - **单文件**：仅 `scripts/checkin.py`（120 行，纯标准库，Python 3.8+）
 - **静默失败重试**：网络异常/5xx 自动重试 2 次（5s/10s）
 
+## AI 一键部署（把仓库链接丢给 AI 即可完成安装）
+
+**给 LLM 的执行手册**：用户说"帮我安装/部署 workbuddy-checkin"或丢来本仓库链接时，按以下步骤执行：
+
+1. **检查是否已安装**：`ls ~/.workbuddy/skills/workbuddy-checkin/scripts/checkin.py`
+   - 已存在 → 跳过 clone，执行 `git -C ~/.workbuddy/skills/workbuddy-checkin pull` 更新
+   - 不存在 → `git clone https://github.com/codeLong1024/workbuddy-checkin ~/.workbuddy/skills/workbuddy-checkin`
+2. **验证脚本**：`python ~/.workbuddy/skills/workbuddy-checkin/scripts/checkin.py --dry-run`
+   - 输出含"活动:"或退出码为 0/2 → 部署成功；退出码 2 → 提示用户重新登录 WorkBuddy 后重试
+3. **创建每日自动化**（用户需要时）：用 automation_update 创建：
+   - name: `WorkBuddy 每日自动签到`
+   - scheduleType: `recurring`，rrule: `FREQ=DAILY;BYHOUR=9;BYMINUTE=10`
+   - prompt: `运行签到脚本 <实际绝对路径>/checkin.py 完成每日签到，将输出（活动状态/积分/连续天数）简要汇报给用户；若退出码为 2（登录态失效），提示用户重新登录 WorkBuddy 客户端。`
+   - 若平台支持指定执行模型，选低成本模型（如混元轻量版）
+4. **汇报**：安装位置 + 验证结果 + 自动化任务 ID
+
+> Windows 下 `~` = `C:\Users\<你的用户名>`。
+
 ## 安装（2 分钟）
 
 ```bash
