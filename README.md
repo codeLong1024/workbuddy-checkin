@@ -17,33 +17,12 @@ WorkBuddy / 腾讯 copilot 每日打卡积分全家桶 —— 读取 WorkBuddy �
 2. **零耦合**——脚本统一落 `~/.workbuddy/scripts/<模块名>/`，自动化任务各自独立，卸载 A 不影响 B
 3. **统一安装**——全部为自用脚本（skill 仅 checkin 保留触发壳），不走技能注入，零 token 开销
 
-## 仓库结构
-
-```
-workbuddy-checkin/
-├── README.md               # 本文件：模块总览 + 一键安装总流程
-├── SKILL.md                # checkin 触发壳（本机 skill 使用）
-├── checkin/                # 模块：每日签到
-│   ├── README.md           # 安装手册（AI 可执行）
-│   └── scripts/checkin.py
-└── travel/                 # 模块：派猫旅行
-    ├── README.md           # 安装手册（AI 可执行）
-    └── scripts/travel.py
-```
-
-## 一键安装总流程（给 LLM 的执行手册）
-
-1. 用户丢来本仓库链接并说要装的功能（checkin / travel / 都装）
-2. 读对应模块的 `README.md`，按「AI 一键安装」节执行（复制脚本 → 验证 → 交互确认触发时间 → 创建自动化）
-3. 汇报：脚本安装位置 + 验证结果 + 自动化任务 ID
-
 > Windows 下 `~` = `C:\Users\<你的用户名>`。
 
 ## 安全
 
 - 脚本不存储任何凭证，不存在配置文件，也不需要
 - Token 即登录态（`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`），请勿分享认证文件
-- 本项目仅供个人自动化学习，使用者须自行遵守腾讯 copilot 服务条款与所在公司合规要求
 
 ## 免责声明（Disclaimer）
 
