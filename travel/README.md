@@ -16,25 +16,35 @@ WorkBuddy 成长空间「派猫旅行」：每日派出暴富喵去旅行（1-4 
    - name: `每日派猫旅行`
    - scheduleType: `recurring`，rrule: `FREQ=DAILY;BYHOUR=<确认的小时>;BYMINUTE=0`
    - modelId: `hy3`，modelIsThinking: `false`（**必须传真布尔值 false，禁止传字符串 "false"，否则落库为 1**）
-   - prompt：见下方「任务 A prompt 模板」
-5. **说明任务 B（领奖 once）**：由任务 A 每次执行时动态创建（到达时间 +10 分钟的一次性任务），无需手动创建
-6. **汇报**：脚本安装位置 + 任务 A 的 ID 与触发时间 + 任务 B 的机制
+   - prompt：见下方「任务 A prompt 模板」（复用激活模式）
+5. **创建领奖锚点任务**（automation_update，一次性）：
+   - name: `派猫旅行领奖（一次性）`
+   - scheduleType: `once`，scheduledAt: `2099-12-31T23:59`（远期占位，防未激活时误跑）
+   - modelId: `hy3`，modelIsThinking: `false`
+   - prompt：见下方「任务 B prompt 模板」——该任务是**常驻复用锚点**，每日由任务 A update 激活（改 scheduledAt=当天领奖时间），永不新建
+6. **汇报**：脚本安装位置 + 任务 A/B 的 ID 与触发机制
 
 > Windows 下 `~` = `C:\Users\<你的用户名>`；`<仓库路径>` 为 clone 后的本地路径（如 `~/.workbuddy/skills/workbuddy-checkin`）。
 
-## 任务 A prompt 模板（每日派猫旅行，recurring）
+## 任务 A prompt 模板（每日派猫旅行，recurring，复用激活模式）
 
 ```
 执行每日派猫旅行。运行命令：python <实际绝对路径>/travel.py depart，读取输出：
 
-1. 若输出"已派出"且含 arrive_at_iso: YYYY-MM-DDTHH:MM → 计算领奖时间 = arrive_at_iso 加 10 分钟（用 date 命令换算），调用 automation_update 创建一次性任务：scheduleType=once，scheduledAt=领奖时间，name="派猫旅行领奖（一次性）"，modelId="hy3"，modelIsThinking=false（必须传真布尔值 false，禁止传字符串 "false"），prompt 固定为「执行派猫旅行领奖。运行命令：python <实际绝对路径>/travel.py claim，若输出"领奖成功 +N 积分"则一句话汇报；若提示旅行未结束则再创建 10 分钟后的一次性任务（prompt 与本任务相同，同样指定 modelId="hy3"、modelIsThinking=false）；若退出码 2 则提示重新登录」。向用户简报派出结果（以脚本输出为准：时长如"3h"、奖励如"已锁定 9 积分"、预计到达时间）。
+1. 若输出"已派出"且含 arrive_at_iso: YYYY-MM-DDTHH:MM → 计算领奖时间 = arrive_at_iso 加 10 分钟（用 date 命令换算），调用 automation_update 更新固定领奖任务（id=<任务B的ID>，mode=update）：scheduledAt=领奖时间，status=ACTIVE。该任务是常驻复用锚点，勿新建；若 update 报错（任务不存在），再按「mode=create，scheduleType=once，name=派猫旅行领奖（一次性），modelId="hy3"，modelIsThinking=false」创建。prompt 固定为「执行派猫旅行领奖。运行命令：python <实际绝对路径>/travel.py claim，若输出"领奖成功 +N 积分"则一句话汇报；若提示旅行未结束则调用 automation_update 更新本任务（id=<任务B的ID>，mode=update）：scheduledAt=当前时间+10 分钟（date 命令换算），status=ACTIVE；若退出码 2 则提示重新登录」。向用户简报派出结果（以脚本输出为准：时长如"3h"、奖励如"已锁定 9 积分"、预计到达时间）。
 
-2. 若输出"派出失败"且提示已派出/达上限（今日已有旅行）→ 运行 python <实际绝对路径>/travel.py status 获取 arrive_at_iso，按第 1 条逻辑创建一次性领奖任务（同样指定 modelId="hy3"、modelIsThinking=false），并简报当前旅行状态。
+2. 若输出"派出失败"且提示已派出/达上限（今日已有旅行）→ 运行 python <实际绝对路径>/travel.py status 获取 arrive_at_iso，按第 1 条逻辑 update 固定领奖任务（id=<任务B的ID>），并简报当前旅行状态。
 
 3. 若退出码为 2（登录态失效）→ 提示用户重新登录 WorkBuddy 客户端。
 ```
 
-> 模板中 `<实际绝对路径>` 一律替换为 `C:\Users\<用户名>\.workbuddy\scripts\travel\travel.py`（Windows）或 `~/.workbuddy/scripts/travel/travel.py`（macOS/Linux）。
+> 模板中 `<实际绝对路径>` 一律替换为 `C:\Users\<用户名>\.workbuddy\scripts\travel\travel.py`（Windows）或 `~/.workbuddy/scripts/travel/travel.py`（macOS/Linux）；`<任务B的ID>` 替换为安装时创建的任务 B 的实际 ID。
+
+## 任务 B prompt 模板（派猫旅行领奖，once 常驻锚点）
+
+```
+执行派猫旅行领奖。运行命令：python <实际绝对路径>/travel.py claim，若输出"领奖成功 +N 积分"则一句话汇报；若提示旅行未结束则调用 automation_update 更新本任务（id=<任务B的ID>，mode=update）：scheduledAt=当前时间+10 分钟（用 date 命令换算），status=ACTIVE；若退出码 2 则提示重新登录
+```
 
 ## 手动安装
 
@@ -44,7 +54,7 @@ mkdir -p ~/.workbuddy/scripts/travel
 cp travel/scripts/travel.py ~/.workbuddy/scripts/travel/
 # 2. 验证
 python ~/.workbuddy/scripts/travel/travel.py status
-# 3. 按上文「任务 A prompt 模板」创建自动化（交互确认派出时间）
+# 3. 按上文「AI 一键安装」创建任务 A（每日派猫）+ 任务 B（领奖锚点）
 ```
 
 ## 脚本用法
@@ -72,5 +82,5 @@ python travel.py depart --watch  # [备用] 派出并挂机轮询
 
 ```bash
 rm -rf ~/.workbuddy/scripts/travel          # 删除脚本
-# 在 WorkBuddy「自动化」管理页停用/删除「每日派猫旅行」任务及遗留的一次性领奖任务
+# 在 WorkBuddy「自动化」管理页停用/删除「每日派猫旅行」和「派猫旅行领奖（一次性）」两个任务
 ```
