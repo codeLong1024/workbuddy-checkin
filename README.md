@@ -1,8 +1,17 @@
 # workbuddy-checkin
 
-WorkBuddy / 腾讯 copilot 每日积分自动签到 —— 读取 WorkBuddy 客户端登录态，直接调用签到接口完成每日签到，纯 Python 标准库、零依赖、零凭证落盘。
+WorkBuddy / 腾讯 copilot 每日打卡积分全家桶 —— 读取 WorkBuddy 客户端登录态直接调接口，纯 Python 标准库、零依赖、零凭证落盘。
 
-## 特性
+## 功能模块（可插拔安装）
+
+| 模块 | 功能 | 安装方式 | 位置 |
+|------|------|------|------|
+| **签到 checkin** | 每日积分签到（幂等） | 本仓库根目录 `scripts/checkin.py`，见下文「AI 一键部署」 | `~/.workbuddy/skills/workbuddy-checkin/` |
+| **派猫旅行 travel** | 每日派出暴富喵旅行 + 到点自动领奖 | `travel/` 模块，见 [travel/README.md](travel/README.md) | `~/.workbuddy/scripts/travel/` |
+
+丢仓库链接给 AI，说"安装签到"或"安装派猫旅行"，AI 按对应模块的 README 自动完成下载 + 创建自动化（会交互确认触发时间）。
+
+## 特性（checkin 模块）
 
 - **免界面自动化**：直接读取 WorkBuddy 已登录的 accessToken（JWT），调用腾讯 copilot 签到接口
 - **幂等安全**：今日已签自动跳过（服务端 `code=10001` 判定），可反复执行无副作用
