@@ -14,8 +14,10 @@
     1  业务失败（接口错误、网络异常重试耗尽）
     2  登录态失效或缺失，需重新登录 WorkBuddy 客户端
 
-登录态: 客户端 2026-09 起把 accessToken 改为 at-rest 加密，本脚本不再读 token，
-请求统一交给 wb_oracle/（借 WorkBuddy 定制版 Electron 运行）在进程内解密并代发。
+幂等: 业务码 10001、HTTP 400（无业务码）、非 2xx 且 msg 含「已签」都判定为「今日已签」（退出码 0）。
+
+登录态: 客户端 2026-09 起把 accessToken 改为 at-rest 信封存储，本脚本不再读 token，
+请求统一交给 wb_oracle/（借 WorkBuddy 客户端进程运行）在进程内取出并代发。
 oracle 定位顺序：环境变量 WB_ORACLE_DIR > 脚本同级 > 上一级（~/.workbuddy/scripts/wb_oracle）。
 """
 
@@ -26,7 +28,7 @@ import subprocess
 import sys
 import time
 
-# 基址为 copilot.tencent.com（预言机默认值）；/v2 为客户端真实路径（app.asar 逆向确认）
+# 基址为 copilot.tencent.com（oracle 默认值）；/v2 为客户端实际调用路径（实测确认）
 STATUS_PATH = "/v2/billing/meter/checkin-activity-status"
 CHECKIN_PATH = "/v2/billing/meter/daily-checkin"
 RETRIES = 2              # 网络/5xx 最多额外重试次数
@@ -39,7 +41,35 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 class OracleError(RuntimeError):
-    """登录态 / 预言机层错误 —— 一律映射为退出码 2（重登即可），不做重试。"""
+    """登录态 / oracle 层错误 —— 一律映射为退出码 2（重登即可），不做重试。"""
+
+
+def ensure_utf8_console():
+    """把标准输出切到 UTF-8。
+
+    Windows 控制台默认 GBK，本脚本输出含中文，重定向/管道下可能直接抛
+    UnicodeEncodeError（表现为退出码 1 的假失败）。切不了就静默沿用（如
+    已被替换成非 TextIOWrapper 的流）。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
+def already_checked(code, body):
+    """判定响应是否属于「今日已签」这一幂等结果（不算失败）。
+
+    - 业务码 10001：服务端标准重复签到码
+    - HTTP 400 且无业务码：部分环境对重复签到直接回 400
+    - 非 2xx 且 msg 含「已签」：兜底文案；2xx 不参与，避免把正常报文误吞成幂等
+    """
+    if body.get("code") == 10001:
+        return True
+    if code == 400 and body.get("code") is None:
+        return True
+    return code != 200 and "已签" in (body.get("msg") or "")
 
 
 def find_oracle_dir(here=None):
@@ -59,7 +89,7 @@ def find_oracle_dir(here=None):
 
 
 def parse_oracle_output(text):
-    """解析预言机 stdout -> (http_status, body_dict)，定位不到状态返回 None。
+    """解析 oracle stdout -> (http_status, body_dict)，定位不到状态返回 None。
 
     不假定首行即状态：Electron 偶尔会往 stdout 打噪音，按 `HTTP <数字>` 定位，
     该行之后全部内容作为 body。
@@ -88,13 +118,13 @@ def api(path):
             [ORACLE_EXE, oracle, "request", "POST", path, "{}"],
             capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
-        raise OracleError("调用预言机失败: {}".format(e))
+        raise OracleError("调用 oracle 失败: {}".format(e))
     if proc.returncode != 0:
         raise OracleError((proc.stderr or "").strip()
                           or "登录态不可用，请重新登录 WorkBuddy 客户端")
     parsed = parse_oracle_output(proc.stdout)
     if not parsed:
-        raise OracleError("预言机输出异常: {}".format(proc.stdout[:200]))
+        raise OracleError("oracle 输出异常: {}".format(proc.stdout[:200]))
     return parsed
 
 
@@ -120,6 +150,7 @@ def call(path):
 
 
 def main():
+    ensure_utf8_console()
     parser = argparse.ArgumentParser(description="WorkBuddy 每日签到")
     parser.add_argument("--dry-run", action="store_true", help="只查询状态")
     parser.add_argument("--force", action="store_true",
@@ -175,10 +206,10 @@ def main():
         print("签到成功 本次 +{} 积分 | 连续 {} 天 | 总积分 {}".format(
             d.get("credit", 0), d.get("streak_days", 0), total_after))
         return
-    if biz_code == 10001 or "已签" in msg:
+    if already_checked(code, body):
         print("今日已签到（接口确认），无需重复")
         return
-    print("签到失败: code={} msg={}".format(biz_code, msg))
+    print("签到失败: HTTP {} code={} msg={}".format(code, biz_code, msg))
     sys.exit(1)
 
 

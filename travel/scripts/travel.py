@@ -10,7 +10,7 @@
     python travel.py claim       立即领奖（仅到达后有效）
     python travel.py records     旅行记录
 
-接口（逆向 growth-space 前端确认，基址 copilot.tencent.com）:
+接口（基址 copilot.tencent.com）:
     GET  /activity/growth/buddy/travel/config    地点配置
     GET  /activity/growth/buddy/travel/status    旅行状态
     POST /activity/growth/buddy/travel/depart    派出 {location_id}
@@ -19,8 +19,8 @@
 
 规则: 每日可派 1 次（自然日重置），旅行 1-4 小时，奖励 5-10 积分。
 
-登录态: 客户端 2026-09 起把 accessToken 改为 at-rest 加密，本脚本不再读 token，
-请求统一交给 wb_oracle/（借 WorkBuddy 定制版 Electron 运行）在进程内解密并代发。
+登录态: 客户端 2026-09 起把 accessToken 改为 at-rest 信封存储，本脚本不再读 token，
+请求统一交给 wb_oracle/（借 WorkBuddy 客户端进程运行）在进程内取出并代发。
 oracle 定位顺序：环境变量 WB_ORACLE_DIR > 脚本同级 > 上一级（~/.workbuddy/scripts/wb_oracle）。
 退出码 2 = 登录态不可用（缺 wb_oracle / 客户端未登录）。
 """
@@ -34,6 +34,19 @@ ORACLE_EXE = os.path.join(
     os.environ.get("LOCALAPPDATA", os.path.expanduser("~/AppData/Local")),
     "Programs", "WorkBuddy", "WorkBuddy.exe")
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def ensure_utf8_console():
+    """把标准输出切到 UTF-8。
+
+    Windows 控制台默认 GBK，本脚本输出含中文，重定向/管道下可能直接抛
+    UnicodeEncodeError（表现为退出码 1 的假失败）。切不了就静默沿用。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
 
 
 def find_oracle_dir(here=None):
@@ -53,7 +66,7 @@ def find_oracle_dir(here=None):
 
 
 def parse_oracle_output(text):
-    """解析预言机 stdout -> (http_status, body_dict)，定位不到状态返回 None。
+    """解析 oracle stdout -> (http_status, body_dict)，定位不到状态返回 None。
 
     不假定首行即状态：Electron 偶尔会往 stdout 打噪音，按 `HTTP <数字>` 定位，
     该行之后全部内容作为 body。
@@ -85,14 +98,14 @@ def call(method, path, body=None):
     try:
         proc = subprocess.run(args, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
-        print("调用预言机失败: {}".format(e))
+        print("调用 oracle 失败: {}".format(e))
         sys.exit(2)
     if proc.returncode != 0:
         print((proc.stderr or "").strip() or "登录态不可用，请重新登录 WorkBuddy 客户端")
         sys.exit(2)
     parsed = parse_oracle_output(proc.stdout)
     if not parsed:
-        print("预言机输出异常: {}".format(proc.stdout[:200]))
+        print("oracle 输出异常: {}".format(proc.stdout[:200]))
         sys.exit(1)
     return parsed
 
@@ -141,6 +154,7 @@ def run_watch(interval=120, timeout=6 * 3600):
 
 
 def main():
+    ensure_utf8_console()
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)

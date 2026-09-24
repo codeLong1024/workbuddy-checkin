@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""离线测试：预言机输出解析契约 + 缺依赖时的退出码语义。
+"""离线测试：oracle 输出解析契约 + 退出码语义 + 幂等判定 + 控制台编码。
 
     python -m unittest discover -s tests -v
 
@@ -210,6 +210,67 @@ class TestCliGuards(unittest.TestCase):
         self.assertIn("usage", p.stderr.lower())
 
 
+class TestAlreadyChecked(unittest.TestCase):
+    """幂等判定表：只有明确属于「今日已签」的响应才算成功，真失败不得被吞成 exit 0。
+
+    只测 checkin —— travel 没有这层语义。
+    实测来源：重复签到时服务端可能回业务码 10001，也可能直接回 HTTP 400（无业务码）。
+    """
+
+    CASES = (
+        (200, {"code": 10001}, True),                      # 标准重复签到码
+        (200, {"code": 0, "data": {"credit": 100}}, False),  # 正常签到成功
+        (400, {}, True),                                   # 400 无业务码
+        (400, {"msg": "already checked in"}, True),
+        (400, {"code": 40001, "msg": "参数错误"}, False),   # 400 但带业务码 = 真失败
+        (200, {"msg": "已签到"}, False),                    # 2xx 不参与 msg 兜底
+        (500, {"msg": "当日已签，请勿重复"}, True),
+        (500, {"msg": "internal error"}, False),
+    )
+
+    def test_cases(self):
+        for code, body, expected in self.CASES:
+            with self.subTest(code=code, body=body):
+                self.assertEqual(CHECKIN.already_checked(code, body), expected)
+
+    def test_returns_bool(self):
+        for code, body, _ in self.CASES:
+            with self.subTest(code=code, body=body):
+                self.assertIsInstance(CHECKIN.already_checked(code, body), bool)
+
+
+class TestConsoleEncoding(unittest.TestCase):
+    """Windows 窄编码控制台（GBK/ascii）下中文输出不得抛 UnicodeEncodeError。"""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.no_client = os.path.join(self._td.name, "no-client")
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def test_callable_and_idempotent(self):
+        for name, mod in MODS:
+            with self.subTest(mod=name):
+                mod.ensure_utf8_console()
+                mod.ensure_utf8_console()               # 重复调用不应抛
+                self.assertEqual(sys.stdout.encoding, "utf-8")
+
+    def test_ascii_console_no_crash(self):
+        """PYTHONIOENCODING=ascii 模拟窄编码：应正常落到退出码 2，而不是编码异常。"""
+        for script, args in (("checkin/scripts/checkin.py", ["--dry-run"]),
+                             ("travel/scripts/travel.py", ["status"])):
+            with self.subTest(script=script):
+                env = dict(os.environ, LOCALAPPDATA=self.no_client,
+                           PYTHONIOENCODING="ascii")
+                env.pop("WB_ORACLE_DIR", None)
+                p = subprocess.run([sys.executable, os.path.join(ROOT, script), *args],
+                                   capture_output=True, env=env, timeout=60)
+                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+                self.assertNotIn(b"UnicodeEncodeError", p.stderr)
+                self.assertNotIn(b"Traceback", p.stderr)
+
+
 class TestOracleAssets(unittest.TestCase):
     def test_package_json_entry(self):
         path = os.path.join(ROOT, "oracle", "scripts", "wb_oracle", "package.json")
@@ -225,7 +286,7 @@ class TestOracleAssets(unittest.TestCase):
 
 
 class TestOracleIntegration(unittest.TestCase):
-    """端到端：用真实客户端跑预言机。只读（check / status），不签到、不派出。"""
+    """端到端：用真实客户端跑 oracle。只读（check / status），不签到、不派出。"""
 
     ORACLE = os.path.join(ROOT, "oracle", "scripts", "wb_oracle")
 
@@ -247,11 +308,11 @@ class TestOracleIntegration(unittest.TestCase):
         self.assertTrue(d["ok"])
         for k in ("protectorKeyId", "tokenLength", "tokenFingerprint", "uidTail"):
             self.assertIn(k, d)
-        self.assertNotIn("atRestSecretKey", p.stdout)          # 不得泄漏密钥
+        self.assertNotIn("atRestSecretKey", p.stdout)          # 不得泄漏保护钥
         self.assertGreater(d["tokenLength"], 100)
 
     def test_travel_status_end_to_end(self):
-        """travel.py 走预言机拿 status，必须是退出码 0 + 可读输出。
+        """travel.py 走 oracle 拿 status，必须是退出码 0 + 可读输出。
 
         从仓库目录直接跑（未安装到 ~/.workbuddy）时用 WB_ORACLE_DIR 指向仓库内的 oracle。
         """
