@@ -2,6 +2,12 @@
 
 WorkBuddy / 腾讯 copilot 每日打卡积分全家桶 —— 读本机客户端登录态直接调接口，纯 Python 标准库、零依赖、零凭证落盘。
 
+> **仓库地址（两个入口内容一致，用能打开的那个）**
+> - GitHub：[codeLong1024/workbuddy-checkin](https://github.com/codeLong1024/workbuddy-checkin)
+> - 国内镜像：[cnb.cool/codeLong1024/workbuddy-checkin](https://cnb.cool/codeLong1024/workbuddy-checkin) —— 同一份代码，为国内网络访问提供更稳的下载入口；文件路径、安装步骤与 GitHub 版完全相同。
+>
+> 把仓库链接交给 AI 安装时，任选其一即可。
+
 ## 功能模块（按序安装）
 
 | 模块 | 功能 | 安装位置 | 安装手册 |
