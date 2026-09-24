@@ -54,6 +54,10 @@ python -m unittest discover -s tests -v
 6. **无担保**：本项目按「现状」（AS-IS）提供，不提供任何明示或默示的担保。
 7. **配合下架**：如腾讯公司或相关权利方认为本项目存在合规问题，作者将积极配合处理（包括但不限于移除相关接口信息或下架项目）。
 
+## 致谢
+
+- [@lzmy1232](https://github.com/lzmy1232)：[PR #1](https://github.com/codeLong1024/workbuddy-checkin/pull/1) 中提出的三块改进已被吸收进本项目 —— 登录态文件读取重试、签到幂等与退出码语义、Windows 控制台编码（见 `df85070`）。其余建议因与「零状态落盘」的设计约束冲突或与既有能力职责重叠未采纳，原因见该 PR 下的讨论。
+
 ## License
 
 MIT
