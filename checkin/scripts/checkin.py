@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""WorkBuddy 每日积分自动签到（单文件最小实现）。
+"""WorkBuddy「Buddy 加油站」每日积分自动签到（单文件，纯标准库）。
 
-直接读取 WorkBuddy 客户端登录态中的 accessToken，调用腾讯 copilot
-签到接口完成每日签到。不依赖界面自动化，不存储任何凭证，纯标准库。
+不依赖界面自动化，不存储任何凭证。
 
 用法:
     python checkin.py            执行签到（幂等，今日已签则跳过）
@@ -14,113 +13,104 @@
     0  签到成功 / 今日已签
     1  业务失败（接口错误、网络异常重试耗尽）
     2  登录态失效或缺失，需重新登录 WorkBuddy 客户端
+
+登录态: 客户端 2026-09 起把 accessToken 改为 at-rest 加密，本脚本不再读 token，
+请求统一交给 wb_oracle/（借 WorkBuddy 定制版 Electron 运行）在进程内解密并代发。
+oracle 定位顺序：环境变量 WB_ORACLE_DIR > 脚本同级 > 上一级（~/.workbuddy/scripts/wb_oracle）。
 """
 
 import argparse
-import base64
 import json
 import os
+import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 
-# v2 为客户端真实路径（app.asar 逆向确认）；无 v2 版本服务端仍兼容，但非主路径
-API_BASE = "https://copilot.tencent.com/v2/billing/meter"
-AUTH_FILENAMES = ("workbuddy-desktop.info", "Tencent-Cloud.coding-copilot.info")
+# 基址为 copilot.tencent.com（预言机默认值）；/v2 为客户端真实路径（app.asar 逆向确认）
+STATUS_PATH = "/v2/billing/meter/checkin-activity-status"
+CHECKIN_PATH = "/v2/billing/meter/daily-checkin"
 RETRIES = 2              # 网络/5xx 最多额外重试次数
 RETRY_DELAYS = (5, 10)   # 重试间隔（秒）
 
-
-def auth_file_paths():
-    """CodeBuddy/WorkBuddy 官方认证文件路径（Windows）。"""
-    base = os.path.join(
-        os.environ.get("LOCALAPPDATA", os.path.expanduser("~/AppData/Local")),
-        "CodeBuddyExtension", "Data", "Public", "auth",
-    )
-    return [os.path.join(base, name) for name in AUTH_FILENAMES]
+ORACLE_EXE = os.path.join(
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~/AppData/Local")),
+    "Programs", "WorkBuddy", "WorkBuddy.exe")
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def jwt_payload(token):
-    """解 JWT payload，失败返回 None。"""
+class OracleError(RuntimeError):
+    """登录态 / 预言机层错误 —— 一律映射为退出码 2（重登即可），不做重试。"""
+
+
+def find_oracle_dir(here=None):
+    """定位 wb_oracle 目录，找不到返回 None。
+
+    顺序：WB_ORACLE_DIR 显式指定 > 脚本同级（单模块安装）> 上一级（共享安装）。
+    """
+    env = os.environ.get("WB_ORACLE_DIR")
+    if env:
+        return env if os.path.isfile(os.path.join(env, "main.js")) else None
+    here = here or HERE
+    for cand in (os.path.join(here, "wb_oracle"),
+                 os.path.join(here, os.pardir, "wb_oracle")):
+        if os.path.isfile(os.path.join(cand, "main.js")):
+            return os.path.abspath(cand)
+    return None
+
+
+def parse_oracle_output(text):
+    """解析预言机 stdout -> (http_status, body_dict)，定位不到状态返回 None。
+
+    不假定首行即状态：Electron 偶尔会往 stdout 打噪音，按 `HTTP <数字>` 定位，
+    该行之后全部内容作为 body。
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == "HTTP" and parts[1].isdigit():
+            rest = "\n".join(lines[i + 1:]).strip()
+            try:
+                return int(parts[1]), (json.loads(rest) if rest else {})
+            except ValueError:
+                return int(parts[1]), {"msg": rest}
+    return None
+
+
+def api(path):
+    """经 wb_oracle 发起一次已鉴权 POST（body {}），返回 (http_code, json_body)。"""
+    if not os.path.isfile(ORACLE_EXE):
+        raise OracleError("未找到 WorkBuddy 客户端: {}".format(ORACLE_EXE))
+    oracle = find_oracle_dir()
+    if not oracle:
+        raise OracleError("未找到 wb_oracle 目录（可用 WB_ORACLE_DIR 指定），见仓库 oracle/README.md")
     try:
-        payload = token.split(".")[1]
-        payload += "=" * (-len(payload) % 4)
-        return json.loads(base64.urlsafe_b64decode(payload))
-    except Exception:
-        return None
+        proc = subprocess.run(
+            [ORACLE_EXE, oracle, "request", "POST", path, "{}"],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise OracleError("调用预言机失败: {}".format(e))
+    if proc.returncode != 0:
+        raise OracleError((proc.stderr or "").strip()
+                          or "登录态不可用，请重新登录 WorkBuddy 客户端")
+    parsed = parse_oracle_output(proc.stdout)
+    if not parsed:
+        raise OracleError("预言机输出异常: {}".format(proc.stdout[:200]))
+    return parsed
 
 
-def jwt_sub(token):
-    payload = jwt_payload(token)
-    return (payload or {}).get("sub") or ""
-
-
-def jwt_exp_ok(token, skew=300):
-    """Token 有效期是否足够（预留 5 分钟余量）。"""
-    payload = jwt_payload(token)
-    if not payload:
-        return False
-    return (payload.get("exp") or 0) > time.time() + skew
-
-
-def load_token():
-    """从认证文件读取 (accessToken, uid)，均有效才返回。"""
-    for path in auth_file_paths():
-        if not os.path.isfile(path):
-            continue
-        try:
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            continue
-        auth = data.get("auth") or {}
-        token = auth.get("accessToken") or ""
-        if not token or not jwt_exp_ok(token):
-            continue
-        uid = (data.get("account") or {}).get("uid") or jwt_sub(token)
-        if uid:
-            return token, uid
-    return None, None
-
-
-def api(path, token, uid):
-    """调用接口一次，返回 (http_code, json_body)。"""
-    req = urllib.request.Request(
-        API_BASE + path,
-        data=b"{}",
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": "Bearer " + token,
-            "X-User-Id": uid,
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return resp.status, json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode() or "{}"
-        try:
-            return e.code, json.loads(raw)
-        except ValueError:
-            return e.code, {"msg": raw}
-    except urllib.error.URLError as e:
-        raise RuntimeError("网络错误: {}".format(e.reason))
-
-
-def call(path, token, uid):
-    """带重试调用，仅对网络异常和 5xx 重试，401/4xx 立即返回。"""
+def call(path):
+    """带重试调用，仅对网络异常和 5xx 重试；登录态错误立即抛出。"""
     last = None
     for i in range(RETRIES + 1):
         try:
-            code, body = api(path, token, uid)
+            code, body = api(path)
             if code >= 500 and i < RETRIES:
                 last = "HTTP {}".format(code)
                 time.sleep(RETRY_DELAYS[i])
                 continue
             return code, body
+        except OracleError:
+            raise
         except RuntimeError as e:
             last = str(e)
             if i < RETRIES:
@@ -136,13 +126,11 @@ def main():
                         help="今日已签也强制调签到接口")
     args = parser.parse_args()
 
-    token, uid = load_token()
-    if not token:
-        print("登录态缺失或 accessToken 已过期，请重新登录 WorkBuddy 客户端")
-        sys.exit(2)
-
     try:
-        code, body = call("/checkin-activity-status", token, uid)
+        code, body = call(STATUS_PATH)
+    except OracleError as e:
+        print("查询签到状态失败: {}".format(e))
+        sys.exit(2)
     except RuntimeError as e:
         print("查询签到状态失败: {}".format(e))
         sys.exit(1)
@@ -165,7 +153,10 @@ def main():
         return
 
     try:
-        code, body = call("/daily-checkin", token, uid)
+        code, body = call(CHECKIN_PATH)
+    except OracleError as e:
+        print("签到失败: {}".format(e))
+        sys.exit(2)
     except RuntimeError as e:
         print("签到失败: {}".format(e))
         sys.exit(1)

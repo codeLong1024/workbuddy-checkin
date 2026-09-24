@@ -10,7 +10,7 @@
     python travel.py claim       立即领奖（仅到达后有效）
     python travel.py records     旅行记录
 
-接口（逆向 growth-space 前端确认）:
+接口（逆向 growth-space 前端确认，基址 copilot.tencent.com）:
     GET  /activity/growth/buddy/travel/config    地点配置
     GET  /activity/growth/buddy/travel/status    旅行状态
     POST /activity/growth/buddy/travel/depart    派出 {location_id}
@@ -18,57 +18,83 @@
     GET  /activity/growth/buddy/travel/records   记录 {page,page_size}
 
 规则: 每日可派 1 次（自然日重置），旅行 1-4 小时，奖励 5-10 积分。
+
+登录态: 客户端 2026-09 起把 accessToken 改为 at-rest 加密，本脚本不再读 token，
+请求统一交给 wb_oracle/（借 WorkBuddy 定制版 Electron 运行）在进程内解密并代发。
+oracle 定位顺序：环境变量 WB_ORACLE_DIR > 脚本同级 > 上一级（~/.workbuddy/scripts/wb_oracle）。
+退出码 2 = 登录态不可用（缺 wb_oracle / 客户端未登录）。
 """
 
 import json
 import os
+import subprocess
 import sys
-import urllib.error
-import urllib.request
 
-API_BASE = "https://copilot.tencent.com"
-AUTH_FILENAMES = ("workbuddy-desktop.info", "Tencent-Cloud.coding-copilot.info")
-
-
-def auth_file_paths():
-    base = os.path.join(
-        os.environ.get("LOCALAPPDATA", os.path.expanduser("~/AppData/Local")),
-        "CodeBuddyExtension", "Data", "Public", "auth",
-    )
-    return [os.path.join(base, name) for name in AUTH_FILENAMES]
+ORACLE_EXE = os.path.join(
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~/AppData/Local")),
+    "Programs", "WorkBuddy", "WorkBuddy.exe")
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-def load_token():
-    for path in auth_file_paths():
-        if not os.path.isfile(path):
-            continue
-        try:
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            continue
-        auth = data.get("auth") or {}
-        token = auth.get("accessToken") or ""
-        if not token:
-            continue
-        uid = (data.get("account") or {}).get("uid") or ""
-        if uid:
-            return token, uid
-    return None, None
+def find_oracle_dir(here=None):
+    """定位 wb_oracle 目录，找不到返回 None。
+
+    顺序：WB_ORACLE_DIR 显式指定 > 脚本同级（单模块安装）> 上一级（共享安装）。
+    """
+    env = os.environ.get("WB_ORACLE_DIR")
+    if env:
+        return env if os.path.isfile(os.path.join(env, "main.js")) else None
+    here = here or HERE
+    for cand in (os.path.join(here, "wb_oracle"),
+                 os.path.join(here, os.pardir, "wb_oracle")):
+        if os.path.isfile(os.path.join(cand, "main.js")):
+            return os.path.abspath(cand)
+    return None
+
+
+def parse_oracle_output(text):
+    """解析预言机 stdout -> (http_status, body_dict)，定位不到状态返回 None。
+
+    不假定首行即状态：Electron 偶尔会往 stdout 打噪音，按 `HTTP <数字>` 定位，
+    该行之后全部内容作为 body。
+    """
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == "HTTP" and parts[1].isdigit():
+            rest = "\n".join(lines[i + 1:]).strip()
+            try:
+                return int(parts[1]), (json.loads(rest) if rest else {})
+            except ValueError:
+                return int(parts[1]), {"msg": rest}
+    return None
 
 
 def call(method, path, body=None):
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(
-        API_BASE + path, data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json",
-                 "Authorization": "Bearer " + token, "X-User-Id": uid},
-        method=method)
+    """经 wb_oracle 发起已鉴权请求，返回 (http_status, json_body)。"""
+    if not os.path.isfile(ORACLE_EXE):
+        print("未找到 WorkBuddy 客户端: {}".format(ORACLE_EXE))
+        sys.exit(2)
+    oracle = find_oracle_dir()
+    if not oracle:
+        print("未找到 wb_oracle 目录（可用 WB_ORACLE_DIR 指定），见仓库 oracle/README.md")
+        sys.exit(2)
+    args = [ORACLE_EXE, oracle, "request", method, path]
+    if body is not None:
+        args.append(json.dumps(body))
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            return r.status, json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read().decode() or "{}")
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        print("调用预言机失败: {}".format(e))
+        sys.exit(2)
+    if proc.returncode != 0:
+        print((proc.stderr or "").strip() or "登录态不可用，请重新登录 WorkBuddy 客户端")
+        sys.exit(2)
+    parsed = parse_oracle_output(proc.stdout)
+    if not parsed:
+        print("预言机输出异常: {}".format(proc.stdout[:200]))
+        sys.exit(1)
+    return parsed
 
 
 def fmt_time(ts):
@@ -119,12 +145,6 @@ def main():
         print(__doc__)
         sys.exit(1)
     cmd = sys.argv[1]
-
-    global token, uid
-    token, uid = load_token()
-    if not token:
-        print("登录态缺失或已过期，请重新登录 WorkBuddy 客户端")
-        sys.exit(2)
 
     if cmd == "status":
         code, resp = call("GET", "/activity/growth/buddy/travel/status")

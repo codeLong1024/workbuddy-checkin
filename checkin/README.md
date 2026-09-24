@@ -1,14 +1,16 @@
 # checkin 模块：每日积分签到
 
-WorkBuddy / 腾讯 copilot 每日积分自动签到：读取 WorkBuddy 客户端登录态 accessToken 直接调签到接口，纯 Python 标准库、零依赖、零凭证落盘。本模块脚本以自用脚本分发，skill 仅保留触发壳——通过本 README 在任意 WorkBuddy 客户端安装。
+WorkBuddy「Buddy 加油站」每日积分自动签到：读客户端登录态直接调签到接口，纯 Python 标准库、零依赖。本模块以自用脚本分发，skill 仅保留触发壳——通过本 README 在任意 WorkBuddy 客户端安装。
+
+**依赖 [`oracle` 模块](../oracle/README.md)**（登录态已加密，脚本不再读明文 token）。
 
 ## AI 一键安装（把本仓库链接丢给 AI 即完成）
 
 **给 LLM 的执行手册**：用户说"安装签到"或丢来本仓库链接并指定 checkin 模块时，按以下步骤执行：
 
+0. **先装 oracle**：按 [`oracle/README.md`](../oracle/README.md) 的「AI 一键安装」完成（缺它本模块跑不起来）
 1. **检查是否已安装**：`ls ~/.workbuddy/scripts/checkin/checkin.py`
-   - 已存在 → 跳过复制；确认与仓库最新一致可手动覆盖
-   - 不存在 → 复制：`mkdir -p ~/.workbuddy/scripts/checkin && cp <仓库路径>/checkin/scripts/checkin.py ~/.workbuddy/scripts/checkin/`
+   - 已存在 → 跳过复制；不存在 → `mkdir -p ~/.workbuddy/scripts/checkin && cp <仓库路径>/checkin/scripts/checkin.py ~/.workbuddy/scripts/checkin/`
 2. **验证脚本**：`python ~/.workbuddy/scripts/checkin/checkin.py --dry-run`
    - 输出含"活动:"为成功；退出码 2 → 提示用户重新登录 WorkBuddy 客户端后重试
 3. **交互确认签到时间**：问用户"每天几点自动签到？"（默认 `09:10`）
@@ -24,7 +26,7 @@ WorkBuddy / 腾讯 copilot 每日积分自动签到：读取 WorkBuddy 客户端
 ## 手动安装
 
 ```bash
-# 1. 放置脚本
+# 1. 放置脚本（oracle 先按 ../oracle/README.md 装好）
 mkdir -p ~/.workbuddy/scripts/checkin
 cp checkin/scripts/checkin.py ~/.workbuddy/scripts/checkin/
 # 2. 验证（只查状态，不签到）
@@ -46,21 +48,23 @@ python checkin.py --force   # 强制签到（忽略今日已签，依赖服务�
 |----|------|------|
 | 0 | 签到成功 / 今日已签 | 无需处理 |
 | 1 | 业务失败（接口错误、网络重试耗尽） | 查看输出，可重跑 |
-| 2 | 登录态缺失/失效 | 重新登录 WorkBuddy 客户端 |
+| 2 | 登录态缺失/失效（含缺 oracle、未登录客户端） | 重新登录 WorkBuddy 客户端 |
 
 ## 接口与机制（逆向确认）
 
-- **Token 来源**：`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` 的 `auth.accessToken`，WorkBuddy 客户端自动续期，脚本只读不改
-- **查询接口**：`POST /v2/billing/meter/checkin-activity-status`（返回 `streak_days` / `today_credit` / `total_credits`）
-- **签到接口**：`POST /v2/billing/meter/daily-checkin`（幂等，已签返回 `code=10001`；成功报文含 `credit`（本次积分）/ `streak_days`，**不含总积分**——脚本本地累加：签到前 `total_credits` + 本次 `credit`，省去二次查询）
-- 请求体为空 `{}`，鉴权仅靠 `Authorization: Bearer <JWT>` + `X-User-Id`；`/v2` 前缀为客户端真实路径（逆向 `app.asar` 确认）
+- **登录态**：`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` 的 `auth.accessToken`，客户端自动续期。**已加密，脚本不直接读**——统一经 `wb_oracle` 在进程内解密并代发请求
+- **查询接口**：`POST copilot.tencent.com/v2/billing/meter/checkin-activity-status`（返回 `streak_days` / `today_credit` / `total_credits`）
+- **签到接口**：`POST copilot.tencent.com/v2/billing/meter/daily-checkin`（幂等，已签返回 `code=10001`；成功报文含 `credit`（本次积分）/ `streak_days`，**不含总积分**——脚本本地累加：签到前 `total_credits` + 本次 `credit`，省去二次查询）
+- 请求体为空 `{}`；`/v2` 前缀为客户端真实路径（逆向 `app.asar` 确认）
 - ⚠️ `/billing/meter/checkin-status`（无 `-activity-`）是已废弃接口（仍返回 HTTP 200 但 `active=false`），请勿使用
 
 ## 故障排查
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 「活动: 未激活」 | 当前无签到活动 | 属正常状态，脚本仍会尝试签到 |
+| 「活动: 未激活」 | 当前无签到活动 | 属正常状态 |
+| 输出「未找到 wb_oracle 目录」 | 没装 oracle 模块，或装在自定义位置 | 按 [`oracle/README.md`](../oracle/README.md) 安装；自定义位置用环境变量 `WB_ORACLE_DIR` 指定 |
+| 输出「未找到 WorkBuddy 客户端」 | 客户端未安装或路径不同 | 确认客户端安装位置，脚本默认 `%LOCALAPPDATA%\Programs\WorkBuddy\WorkBuddy.exe` |
 | 状态显示未签但签到返回已签 | 服务端状态缓存延迟 | 以签到接口 `code=10001` 为准，属预期行为 |
 
 ## 卸载

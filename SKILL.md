@@ -6,7 +6,9 @@ agent_created: true
 
 # WorkBuddy 每日签到
 
-读 WorkBuddy 登录态 accessToken 调 copilot 签到接口。纯标准库，零凭证落盘。脚本以自用脚本分发（非技能注入），安装/卸载/接口细节见仓库 `checkin/README.md`。
+读 WorkBuddy 登录态调 copilot 签到接口。纯标准库，零凭证落盘。脚本以自用脚本分发（非技能注入），安装/卸载/接口细节见仓库 `checkin/README.md`。
+
+**依赖**：`~/.workbuddy/scripts/wb_oracle/`（登录态已 at-rest 加密，脚本不再读明文 token）。缺它退出码 2，安装见仓库 `oracle/README.md`。
 
 ## 已安装（本机）
 

@@ -2,13 +2,15 @@
 
 WorkBuddy 成长空间「派猫旅行」：每日派出暴富喵去旅行（1-4 小时，5-10 积分），到点自动领奖。纯 Python 标准库、零依赖。**本模块以自用脚本分发，不作为 Skill 暴露**——通过本 README 在任意 WorkBuddy 客户端安装。
 
+**依赖 [`oracle` 模块](../oracle/README.md)**（登录态已加密，脚本不再读明文 token）。
+
 ## AI 一键安装（把本仓库链接丢给 AI 即完成）
 
 **给 LLM 的执行手册**：用户说"安装派猫旅行"或丢来本仓库链接并指定 travel 模块时，按以下步骤执行：
 
+0. **先装 oracle**：按 [`oracle/README.md`](../oracle/README.md) 的「AI 一键安装」完成（缺它本模块跑不起来）
 1. **检查是否已安装**：`ls ~/.workbuddy/scripts/travel/travel.py`
-   - 已存在 → 跳过复制；确认与仓库最新一致可手动覆盖
-   - 不存在 → 复制：`mkdir -p ~/.workbuddy/scripts/travel && cp <仓库路径>/travel/scripts/travel.py ~/.workbuddy/scripts/travel/`
+   - 已存在 → 跳过复制；不存在 → `mkdir -p ~/.workbuddy/scripts/travel && cp <仓库路径>/travel/scripts/travel.py ~/.workbuddy/scripts/travel/`
 2. **验证脚本**：`python ~/.workbuddy/scripts/travel/travel.py status`
    - 输出含"状态:"为成功；退出码 2 → 提示用户重新登录 WorkBuddy 客户端后重试
 3. **交互确认派出时间**：问用户"每天几点派出暴富喵？"（默认 `08:00`，仅需确认小时，旅行时长 1-4h 随机由接口决定）
@@ -24,7 +26,7 @@ WorkBuddy 成长空间「派猫旅行」：每日派出暴富喵去旅行（1-4 
    - prompt：见下方「任务 B prompt 模板」——该任务是**常驻复用锚点**，每日由任务 A update 激活（改 scheduledAt=当天领奖时间），永不新建
 6. **汇报**：脚本安装位置 + 任务 A/B 的 ID 与触发机制
 
-> Windows 下 `~` = `C:\Users\<你的用户名>`；`<仓库路径>` 为 clone 后的本地路径（如 `~/.workbuddy/skills/workbuddy-checkin`）。
+> Windows 下 `~` = `C:\Users\<你的用户名>`；`<仓库路径>` 为 clone 后的本地路径。
 
 ## 任务 A prompt 模板（每日派猫旅行，recurring，复用激活模式）
 
@@ -49,7 +51,7 @@ WorkBuddy 成长空间「派猫旅行」：每日派出暴富喵去旅行（1-4 
 ## 手动安装
 
 ```bash
-# 1. 放置脚本
+# 1. 放置脚本（oracle 先按 ../oracle/README.md 装好）
 mkdir -p ~/.workbuddy/scripts/travel
 cp travel/scripts/travel.py ~/.workbuddy/scripts/travel/
 # 2. 验证
@@ -70,13 +72,14 @@ python travel.py depart --watch  # [备用] 派出并挂机轮询
 
 关键输出：`depart`/`status` 均输出机器可读行 `arrive_at_iso: YYYY-MM-DDTHH:MM`，供自动化换算一次性任务的 scheduledAt（+10 分钟缓冲）。
 
-## 规则（实测）
+## 规则与接口（实测）
 
 - 4 个地点（咖啡馆/商场店铺/健身房/古镇客栈），时长 1-4h 随机、奖励 5-10 积分随机（depart 时服务端锁定，独立随机）
 - 状态机：`idle` → `traveling` → `arrive_at` 到达 → `claim` 领奖；每日 1 次，自然日重置
+- 接口（基址 `copilot.tencent.com`）：`GET /activity/growth/buddy/travel/{config,status,records}`、`POST /activity/growth/buddy/travel/{depart,claim}`
 - **响应字段分布**：`config`=地点与 min/max 范围；`status`=`duration_hours` + `reward_credit`（本次确定值）；`depart`=状态字段（**无时长/奖励**，只有 arrive_at 等）；`records`=`reward_credit` 无 `duration_hours`；`claim`=到账 `reward_credit`
 - 脚本内置修复：depart 响应缺时长/奖励时自动回查 status 补齐权威值
-- 退出码：0 成功 | 1 业务失败 | 2 登录态失效（重新登录 WorkBuddy）
+- 退出码：0 成功 | 1 业务失败 | 2 登录态缺失/失效（含缺 oracle）
 
 ## 卸载
 

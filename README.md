@@ -1,28 +1,42 @@
 # workbuddy-checkin
 
-WorkBuddy / 腾讯 copilot 每日打卡积分全家桶 —— 读取 WorkBuddy 客户端登录态直接调接口，纯 Python 标准库、零依赖、零凭证落盘。
+WorkBuddy / 腾讯 copilot 每日打卡积分全家桶 —— 读本机客户端登录态直接调接口，纯 Python 标准库、零依赖、零凭证落盘。
 
-## 功能模块（可插拔安装）
+## 功能模块（按序安装）
 
-| 模块 | 功能 | 安装位置 | 一键安装入口 |
+| 模块 | 功能 | 安装位置 | 安装手册 |
 |------|------|------|------|
+| **oracle** 登录态预言机 | checkin / travel 的**共同依赖**，不含业务 | `~/.workbuddy/scripts/wb_oracle/` | [oracle/README.md](oracle/README.md) |
 | **checkin** 每日签到 | 积分签到（幂等，今日已签跳过） | `~/.workbuddy/scripts/checkin/` | [checkin/README.md](checkin/README.md) |
 | **travel** 派猫旅行 | 派出暴富喵旅行 + 到点自动领奖 | `~/.workbuddy/scripts/travel/` | [travel/README.md](travel/README.md) |
 
 **把本仓库链接丢给 AI，说"安装签到"或"安装派猫旅行"，AI 按对应模块 README 自动完成下载 + 创建自动化**（会交互确认触发时间，默认：签到 09:10 / 派猫 08:00）。
 
-模块设计三原则：
+> **先装 oracle**：2026-09 起客户端把 `accessToken` 改为 at-rest 加密，脚本不再读明文 token，请求统一经 oracle 代发。缺它两个模块都跑不起来。
 
-1. **自包含**——每个模块独立目录（`checkin/`、`travel/`），模块 README 单独成篇，AI 只读该模块即可安装
-2. **零耦合**——脚本统一落 `~/.workbuddy/scripts/<模块名>/`，自动化任务各自独立，卸载 A 不影响 B
-3. **统一安装**——全部为自用脚本（skill 仅 checkin 保留触发壳），不走技能注入，零 token 开销
+```
+.
+├── oracle/    登录态解密预言机（原理见 docs/at-rest-crypto.md）
+├── checkin/   每日签到
+├── travel/    派猫旅行
+├── docs/      逆向原理（仅维护时读）
+└── tests/     离线测试
+```
+
+模块设计：**自包含**（独立目录 + 独立 README，AI 只读该模块即可安装）、**零耦合**（脚本落 `~/.workbuddy/scripts/<模块名>/`，卸载 A 不影响 B；oracle 是两者共同依赖，除外）、**统一安装**（自用脚本分发，skill 仅 checkin 保留触发壳）。
 
 > Windows 下 `~` = `C:\Users\<你的用户名>`。
 
+## 测试
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## 安全
 
-- 脚本不存储任何凭证，不存在配置文件，也不需要
-- Token 即登录态（`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`），请勿分享认证文件
+- 脚本不存储任何凭证，不存在配置文件；token 只在预言机进程内存里流转，不落盘、不打印、不进 argv
+- 登录态文件 `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` 请勿分享
 
 ## 免责声明（Disclaimer）
 
