@@ -2,7 +2,7 @@
 
 WorkBuddy 成长空间「派猫旅行」：每日派出暴富喵去旅行（1-4 小时，5-10 积分），到点自动领奖。纯 Python 标准库、零依赖。**本模块以自用脚本分发，不作为 Skill 暴露**——通过本 README 在任意 WorkBuddy 客户端安装。
 
-**依赖 [`oracle` 模块](../oracle/README.md)**（登录态已加密，脚本不再读明文 token）。
+**依赖 [`oracle` 模块](../oracle/README.md)**（登录态为信封存储，脚本不再读明文 token）。
 
 ## AI 一键安装（把本仓库链接丢给 AI 即完成）
 

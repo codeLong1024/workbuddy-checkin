@@ -2,7 +2,7 @@
 
 WorkBuddy「Buddy 加油站」每日积分自动签到：读客户端登录态直接调签到接口，纯 Python 标准库、零依赖。本模块以自用脚本分发，skill 仅保留触发壳——通过本 README 在任意 WorkBuddy 客户端安装。
 
-**依赖 [`oracle` 模块](../oracle/README.md)**（登录态已加密，脚本不再读明文 token）。
+**依赖 [`oracle` 模块](../oracle/README.md)**（登录态为信封存储，脚本不再读明文 token）。
 
 ## AI 一键安装（把本仓库链接丢给 AI 即完成）
 
@@ -50,12 +50,13 @@ python checkin.py --force   # 强制签到（忽略今日已签，依赖服务�
 | 1 | 业务失败（接口错误、网络重试耗尽） | 查看输出，可重跑 |
 | 2 | 登录态缺失/失效（含缺 oracle、未登录客户端） | 重新登录 WorkBuddy 客户端 |
 
-## 接口与机制（逆向确认）
+## 接口与机制
 
-- **登录态**：`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` 的 `auth.accessToken`，客户端自动续期。**已加密，脚本不直接读**——统一经 `wb_oracle` 在进程内解密并代发请求
+- **登录态**：`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` 的 `auth.accessToken`，客户端自动续期。**为信封存储，脚本不直接读**——统一经 `wb_oracle` 在进程内取出并代发请求
 - **查询接口**：`POST copilot.tencent.com/v2/billing/meter/checkin-activity-status`（返回 `streak_days` / `today_credit` / `total_credits`）
 - **签到接口**：`POST copilot.tencent.com/v2/billing/meter/daily-checkin`（幂等，已签返回 `code=10001`；成功报文含 `credit`（本次积分）/ `streak_days`，**不含总积分**——脚本本地累加：签到前 `total_credits` + 本次 `credit`，省去二次查询）
-- 请求体为空 `{}`；`/v2` 前缀为客户端真实路径（逆向 `app.asar` 确认）
+- 请求体为空 `{}`；`/v2` 前缀为客户端实际调用路径（实测确认）
+- **幂等判定**：业务码 `10001`、HTTP 400 且无业务码、非 2xx 且 msg 含「已签」都算「今日已签」（退出码 0）；2xx 不参与 msg 兜底，避免把正常报文误吞成幂等
 - ⚠️ `/billing/meter/checkin-status`（无 `-activity-`）是已废弃接口（仍返回 HTTP 200 但 `active=false`），请勿使用
 
 ## 故障排查

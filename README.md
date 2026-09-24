@@ -6,20 +6,20 @@ WorkBuddy / 腾讯 copilot 每日打卡积分全家桶 —— 读本机客户端
 
 | 模块 | 功能 | 安装位置 | 安装手册 |
 |------|------|------|------|
-| **oracle** 登录态预言机 | checkin / travel 的**共同依赖**，不含业务 | `~/.workbuddy/scripts/wb_oracle/` | [oracle/README.md](oracle/README.md) |
+| **oracle** 登录态代理 | checkin / travel 的**共同依赖**，不含业务 | `~/.workbuddy/scripts/wb_oracle/` | [oracle/README.md](oracle/README.md) |
 | **checkin** 每日签到 | 积分签到（幂等，今日已签跳过） | `~/.workbuddy/scripts/checkin/` | [checkin/README.md](checkin/README.md) |
 | **travel** 派猫旅行 | 派出暴富喵旅行 + 到点自动领奖 | `~/.workbuddy/scripts/travel/` | [travel/README.md](travel/README.md) |
 
 **把本仓库链接丢给 AI，说"安装签到"或"安装派猫旅行"，AI 按对应模块 README 自动完成下载 + 创建自动化**（会交互确认触发时间，默认：签到 09:10 / 派猫 08:00）。
 
-> **先装 oracle**：2026-09 起客户端把 `accessToken` 改为 at-rest 加密，脚本不再读明文 token，请求统一经 oracle 代发。缺它两个模块都跑不起来。
+> **先装 oracle**：2026-09 起客户端把 `accessToken` 改为 at-rest 信封存储，脚本不再读明文 token，请求统一经 oracle 代发。缺它两个模块都跑不起来。
 
 ```
 .
-├── oracle/    登录态解密预言机（原理见 docs/at-rest-crypto.md）
+├── oracle/    登录态代理（存储格式见 docs/at-rest-format.md）
 ├── checkin/   每日签到
 ├── travel/    派猫旅行
-├── docs/      逆向原理（仅维护时读）
+├── docs/      登录态存储格式说明（仅维护时读）
 └── tests/     离线测试
 ```
 
@@ -35,7 +35,7 @@ python -m unittest discover -s tests -v
 
 ## 安全
 
-- 脚本不存储任何凭证，不存在配置文件；token 只在预言机进程内存里流转，不落盘、不打印、不进 argv
+- 脚本不存储任何凭证，不存在配置文件；token 只在 oracle 进程内存里流转，不落盘、不打印、不进 argv
 - 登录态文件 `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info` 请勿分享
 
 ## 免责声明（Disclaimer）
